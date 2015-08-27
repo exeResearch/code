@@ -1,0 +1,163 @@
+#svl
+//
+// MACCSkeyCounts.svl    MACCS key counts per molecule (1D molecular descriptors)
+//
+// 11-jul-2009 (exe) created
+// 23-dec-2011 (exe) option to include endpoint
+// 07-mar-2013 (exe) updated documentation
+// 20-mar-2013 (exe) updated comments
+// 16-sep-2014 (exe) option to use a column of compound names instead of cName Chains[]
+// 22-oct-2014 (exe) use SMILES string if the compound's name is not present
+// 18-may-2015 (exe) updated documentation
+//
+// Copyright (C) 2008-2015 Emilio Xavier Esposito. All rights reserved.
+//
+// exeResearch LLC | 32 University Drive | East Lansing, Michigan 48823 USA
+// http://www.exeResearch.com
+// emilio AT exeResearch DOT com
+// emilio DOT esposito AT gmail DOT com
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+//
+// http://www.gnu.org/licenses/gpl-3.0.html
+//
+//
+/*
+Description
+This function counts the occurrence of the 166 MACCS keys for each
+molecule in a MOE database (mdb). The number of each key's occurrence
+is written to a user specified CSV file. The option to include the
+compounds' names and endpoint values in the CSV file is an option from the
+opts variable.
+
+The default values are:
+- Column (field) with molecule is 'mol' (molField:'mol')
+- Include the endpoints if the endpoint column name is provided (endpointField:'')
+- Include the compound's name or SMILES string. Not indicating a compound name file
+  (nameField:'') uses the compound's name returned with 'cName Chains[]' or the 
+  compound's SMILES string if no name is present.
+- Column headers for MACCS keys will be returned in lower case letters (uppers:0)
+
+Instructions
+// load this function
+load '~/code/svl/utilities/MACCSkeyCounts.svl';
+
+// calculate the MACCS Key Counts for a MDB of compounds
+MACCSkeyCounts['Selwood_dataset.mdb', 'Selwood_MACCSkeyCounts.csv', [molField:'mol', endpointField:'pEC50', nameField:'name']]
+
+*/
+
+#set title      'MACCSkeyCounts: MACCS key counts per molecule (1D molecular descriptors)'
+#set class      'exeResearch:QSARmodeling'
+#set version	'october.22.2014'
+
+function MACCS_KeyCount;
+
+const DEFAULTS = [
+    molField:'mol',
+    endpointField:'',
+    nameField:'',
+    uppers:0,
+    uniqNames:0
+];
+
+
+function MACCSkeyCounts [mdbfile, CSVoutfile, opts]
+
+    //----- close the current system
+    Close[];
+    
+    //----- get the options
+    opts = cat [opts, DEFAULTS];
+    opts = opts | m_uniq tags opts;
+    //--- print the options
+    print[opts];
+
+    //----- get the mdb information
+    local mdbkey, fieldname, fieldtype;
+    mdbkey = db_Open mdbfile;
+    [fieldname, fieldtype] = db_Fields mdbkey;
+        
+    //----- set the variables
+    local asciiFileNum;
+
+    //----- open the csv file
+    asciiFileNum = fopenx CSVoutfile;
+
+    //----- create the csv header
+    //--- create the compound name column
+    fwrite[asciiFileNum, 'compound'];
+    //--- create the endpoint column
+    if tok_length opts.endpointField > 0 then
+        fwrite[asciiFileNum, ',{}', opts.endpointField]; 
+    endif
+    //--- create the MACCS Key columns
+    if opts.uppers > 0 then
+        apt fwrite[asciiFileNum, ',MACCS{}', igen[166] ];
+    else
+        apt fwrite[asciiFileNum, ',maccs{}', igen[166] ];
+    endif
+    //--- add the carriage return
+    fwrite[asciiFileNum, '\n'];
+
+    //----- set the variables within the loop
+    local entry, molecule, moleculeAKs, moleculeCKs, moleculeName, moleculeSMILES;
+    local MACCSKeyCount;
+
+    //----- loop over the database...
+    entry = 0;
+    while entry = db_NextEntry [mdbkey, entry] loop
+        molecule = mol_Create first db_ReadFields [mdbkey, entry, opts.molField];
+        moleculeAKs = Atoms[];
+        moleculeCKs = Chains[];
+
+        //--- get the compound's name
+        if tok_length opts.nameField > 0 then
+            moleculeName = db_ReadFields [mdbkey, entry, opts.nameField];
+        else
+            moleculeName = cName moleculeCKs;
+        endif
+        //--- if the compound's name is not present, use the SMILES string
+        if tok_length(moleculeName) == 0 then
+            moleculeName = sm_ExtractUnique moleculeAKs;
+        endif
+
+        //--- write the compound's name to file
+        fwrite[asciiFileNum, '{}', moleculeName];
+
+        //--- write the compound's endpoint value to file if requested
+        if tok_length opts.endpointField > 0 then
+            fwrite[asciiFileNum, ',{}', db_ReadFields [mdbkey, entry, opts.endpointField] ];
+        endif
+	
+        //--- determine the MACCS key count
+        MACCSKeyCount = MACCS_KeyCount moleculeAKs;
+        //--- write counts to file
+        apt fwrite[asciiFileNum, ',{}', MACCSKeyCount];
+        fwrite[asciiFileNum, '\n'];
+
+	//--- remove (delete) the current compound to get ready for the next compound
+	oDestroy moleculeCKs;
+    
+    endloop
+
+    //----- close the database
+    db_Close mdbkey;
+
+    //----- close the ascii (csv) file
+    fclose asciiFileNum;
+
+endfunction
+
+#eof

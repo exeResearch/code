@@ -1,0 +1,242 @@
+#svl
+//
+// db_SetAmide180.svl     set the amide bond dihedral angle to 180 degrees
+//
+// 28-jan-2013 (exe) created
+// 12-feb-2013 (exe) added stand-alone function
+// 12-feb-2013 (exe) option to perform energy minimization after amide dihedral set to 180
+// 12-feb-2013 (exe) returns number of amide dihedral angles that were changed
+// 12-feb-2013 (exe) energy minimization is turned off for the mdb version
+// 20-feb-2013 (exe) updated documentation
+// 04-mar-2013 (exe) updated documentation
+// 20-mar-2013 (exe) updated variable names and comments
+// 24-feb-2015 (exe) added checks for *amino residues
+// 24-feb-2015 (exe) made two distinct functions. CLI, single compound, with amino checking
+//                   and a MDB version that does not check for amino residue types
+// 24-feb-2015 (exe) removed the energy minimization option from the MDB version
+//
+// Copyright (C) 2008-2015 Emilio Xavier Esposito. All rights reserved.
+//
+// exeResearch LLC, East Lansing, Michigan 48823 USA
+// http://www.exeResearch.com
+// emilio AT exeResearch DOT com
+// emilio DOT esposito AT gmail DOT com
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+//
+// http://www.gnu.org/licenses/gpl-3.0.html
+//
+//
+/*
+Description
+It is common for small drug-like compounds and peptides that are constructed
+from SMILES strings and even SDfiles to have amide bonds where the hydrogen of
+the nitrogen atom and the oxygen of the carboxyl group result in a dihedral 
+angle of approximately 0 degrees. This function sets all amide dihedral angles
+to 180 degrees and provides the option for energy minimization (this
+functionality is not implemented in the MDB version because of the energy
+minimization function with the MDB framework). The interactive (3D window)
+version allows the user to select the amide bond of interest.
+
+The MDB version of this function provides the option to overwrite the original
+molecule or create a new column (field) for the compounds. The MDB version
+does indicate how many amide bonds were corrected. It is recommended that
+after changing the amide dihedral angle(s) within a database of compounds
+that the MDB energy minimization (MDB | Compute | Energy Minimize) function
+be performed using the desired molecular force field. 
+
+Note: Amide groups within rings are not modified.
+
+The default values are:
+- No energy minimization for 3D window (nrgOpt:0)
+- Column (field) with molecule is 'mol' (molField:'mol')
+- Save corrected compound to a new column 'modMol' (newMolField:'modMol')
+- Maximum peptide length is set with 'maxPeptideLength' (maxPeptideLength:15)
+
+Instructions
+// load this function
+load '~/code/svl/utilities/db_SetAmide180.svl';
+
+// for a compound in the MOE 3D window (either a single small-organic drug-like
+// compound or a selected molecule)
+SetAmide180[]
+
+// for a compound in the MOE 3D window with energy minimizatin of the new conformation
+SetAmide180[nrgOpt:1]
+
+// for a collection of compound in a MDB saving the new conformation to
+// the originating column of the compound
+db_SetAmide180['drugLike_compounds.mdb', [molField:'mol', newMolField:'']]
+
+*/
+
+#set title    'db_SetAmide180: Set the dihedral angle of an amide bond to ~180 as seen in a peptide backbone'
+#set class    'exeResearch:utilities'
+#set version  'february.24.2015'
+
+const DEFAULTS = [
+    nrgOpt:0,
+    molField:'mol',
+    newMolField:'modMol',
+    maxPeptideLength:15
+];
+
+function MM;
+
+function SetAmide180 opts
+    opts = tagcat [opts, DEFAULTS];
+
+    //----- set the variables
+    local cmpdAKs, cmpdRKs, amideAKs, completeSystem, resTypes;
+    local origDihedralAngles, newDihedralAngles, diffDihedralAngles;
+    local numChanged;
+
+    //----- if there are selected atoms use them
+    cmpdAKs = SelectedAtoms[];
+    cmpdRKs = uniq aResidue cmpdAKs;
+    cmpdAKs = cat rAtoms uniq aResidue cmpdAKs;
+
+    //----- if nothing is selected start with the complete system
+    if length cmpdAKs == 0 then
+        cmpdAKs = Atoms[];
+        //--- determine the type of residues (are they amino acid residues?)
+        cmpdRKs = uniq aResidue cmpdAKs;
+        resTypes = rType cmpdRKs;
+	//--- keep residues that are assigned the 'none' type
+        cmpdAKs = cat (rAtoms cmpdRKs | m_findmatch ['none', resTypes]);
+    endif
+
+    //----- drop atoms that are lone pair (LP)
+    cmpdAKs = cmpdAKs | not m_findmatch['LP', aElement cmpdAKs];
+    
+    //----- just use the complete system?
+    if (length cmpdAKs == 0) and ((add m_findmatch ['*amino', resTypes]) <= opts.maxPeptideLength) then
+        cmpdAKs = Atoms[];
+    endif
+
+    //----- what if there are no cmpdAKs?
+    if length cmpdAKs == 0 then
+        Message[0, 'All residues in the system are type amino.\nNo amide bonds were changed.\n'];
+	Message[0, 'If you are working with peptides, set maxPeptideLength to a value one greater\nthan the number of residues in you longest peptide.\n\n'];
+	Message[0, 'There are NO molecules to modify.'];
+	write['\nAll residues in the system are type amino.\nNo amide bonds were changed.\n'];
+	write['If you are working with peptides, set maxPeptideLength to a value one greater\nthan the number of residues in you longest peptide.\n\n'];
+	write['There are NO molecules to modify.\n\n'];
+	sleep 2.5;
+    endif
+
+    //----- find the amides
+    amideAKs = sm_MatchAtoms ['O=CN[#1]', cmpdAKs ];
+    amideAKs = amideAKs | not app isnull amideAKs;
+
+    //----- get the original amide dihedral angles
+    origDihedralAngles = app aDihedralCWDeg amideAKs;
+
+    //----- set the amide dihedral angle to 180
+    apt aSetDihedralCWDeg [amideAKs, 180];
+
+    //----- energy minimize the system
+    if opts.nrgOpt > 0 then
+        (MM[]);
+    endif
+
+    //----- get the new amide dihedral angles
+    newDihedralAngles = app aDihedralCWDeg amideAKs;
+
+    //----- print the differences between original and new amide dihedral angles
+    diffDihedralAngles = (abs origDihedralAngles) - (abs newDihedralAngles);
+    //--- number of changed dihedral angles
+    numChanged = add (abs diffDihedralAngles > 90);
+
+    //----- return information to user
+    write['Set {} amide bond(s) to 180degrees.\n', numChanged];
+
+endfunction
+
+
+function db_SetAmide180 [mdbfile, opts]
+    opts = tagcat [opts, DEFAULTS];
+    //--- disable the option for energy minimization
+    opts = tagpoke [opts, 'nrgOpt', 0];
+    print opts;
+
+    //----- close the current system
+    Close[];
+
+    //----- get the mdb information
+    local mdbkey;
+    mdbkey = db_Open [mdbfile, 'read-write'];
+
+    //----- add the needed columns to the database
+    db_EnsureField [mdbkey, 'numDihedChanged', 'int'];
+    //--- if the modified compound get put in to a new column, make the column
+    if tok_length(opts.newMolField) > 0 then
+        db_EnsureField [mdbkey, opts.newMolField, 'molecule'];
+        opts.molWriteField = opts.newMolField;
+    else
+        opts.molWriteField = opts.molField;
+    endif
+
+    //----- set the variables within the loop
+    local entry;
+    local numChangedDihedrals;
+    local origDihedralAngles, newDihedralAngles, diffDihedralAngles;
+    local amideAKs;
+    local cmpdCKs, cmpdAKs, cmpd_mol, cmpdDATA;
+
+    //----- loop over the database...
+    entry = 0;
+    while entry = db_NextEntry [mdbkey, entry] loop
+        //--- get the complex
+        cmpdCKs = mol_Create first db_ReadFields [mdbkey, entry, opts.molField];
+        cmpdAKs = cat cAtoms cmpdCKs;
+
+        //----- find the amides
+        amideAKs = sm_MatchAtoms ['O=CN[#1]', cmpdAKs ];
+        amideAKs = amideAKs | not app isnull amideAKs;
+
+        //----- get the original amide dihedral angles
+        origDihedralAngles = app aDihedralCWDeg amideAKs;
+
+        //----- set the amide dihedral angle to 180
+        apt aSetDihedralCWDeg [amideAKs, 180];
+
+        //----- get the new amide dihedral angles
+        newDihedralAngles = app aDihedralCWDeg amideAKs;
+
+        //----- get the differences between original and new amide dihedral angles
+        diffDihedralAngles = (abs origDihedralAngles) - (abs newDihedralAngles);
+        //--- number of changed dihedral angles
+        numChangedDihedrals = add (abs diffDihedralAngles >= 90);
+
+	//--- extract the molecular information
+        cmpd_mol = mol_Extract cmpdAKs;
+        cmpdDATA = tag [opts.molWriteField, nest cmpd_mol];
+        cmpdDATA = cat[cmpdDATA, tag ['numDihedChanged', numChangedDihedrals] ];
+
+        //--- write the data to the database
+        db_Write [mdbkey, entry, cmpdDATA];
+
+	//--- remove (delete) the current compound (system) to get ready for the next complex
+	oDestroy Chains[];
+    
+    endloop
+
+    //----- close the database
+    db_Close mdbkey;
+    
+endfunction
+
+
+#eof
