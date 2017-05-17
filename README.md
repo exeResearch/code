@@ -10,7 +10,7 @@ functions require the use of
 [Chemical Computing Group, Inc's](http://www.chemcomp.com) Molecular
 Operating Environment (MOE).  
 
-##MACCS Key Counts (SVL)
+## MACCS Key Counts (SVL)
 This function counts the occurrence of the 166 MACCS keys for each
 molecule in a MOE database (mdb). The number of each key's occurrence
 is written to a user specified CSV file. The option to include the
@@ -25,7 +25,7 @@ The default values are:
   compound's SMILES string if no name is present.
 * Column headers for MACCS keys will be returned in lower case letters (``uppers:0``)
 
-####Instructions
+#### Instructions
 Load this function  
 ``load '~/code/svl/utilities/MACCSkeyCounts.svl';``
 
@@ -34,7 +34,7 @@ Calculate the MACCS Key Counts for a MDB of compounds
 
 ***
 
-##Set Amide Bonds to 180 Degrees (SVL)
+## Set Amide Bonds to 180 Degrees (SVL)
 It is common for small drug-like compounds and peptides that are constructed
 from SMILES strings and even SDfiles to have amide bonds where the hydrogen of
 the nitrogen atom and the oxygen of the carboxyl group result in a dihedral 
@@ -59,7 +59,7 @@ The default values are:
 * Save corrected compound to a new column ``'modMol'`` (``newMolField:'modMol'``)
 * Maximum peptide length is set with ``'maxPeptideLength'`` (``maxPeptideLength:15``)
 
-####Instructions
+#### Instructions
 Load this function  
 ``load '~/code/svl/utilities/db_SetAmide180.svl'``
 
@@ -77,7 +77,7 @@ the originating column of the compound
 
 ***
 
-###Notes:
+### Notes:
 * SVL functions (code) are traditionally stored by the author in
   ``~/code/svl``. Unless otherwise noted, the provided SVL code is stored
   in ``~/code/svl/utilities``. The instructions for each function reflects
